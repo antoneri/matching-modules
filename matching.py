@@ -113,7 +113,7 @@ def create_bipartite_graph(S, row, col):
     return B
 
 
-def match(P, Q):
+def match(P, Q, threshold=None):
     """
     Match modules in partitions using pairwise similarity
     
@@ -132,12 +132,13 @@ def match(P, Q):
     
     M = nx.Graph()
     
-    for node, bipartite in B.nodes.data("bipartite"):
-        M.add_node(node, bipartite=bipartite)
+    for node, data in B.nodes.data(True):
+        M.add_node(node, **data)
     
     for source in B.nodes:
         target, data = max(B[source].items(), key=lambda node: node[1]["weight"])
-        M.add_edge(source, target, weight=data["weight"])
+        if threshold is None or data["weight"] > threshold:
+            M.add_edge(source, target, weight=data["weight"])
     
     return M
 
