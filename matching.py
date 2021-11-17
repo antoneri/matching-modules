@@ -85,7 +85,7 @@ def similarity(P, Q):
     return S, dict(row), dict(col)
 
 
-def create_bipartite_graph(S, row, col):
+def create_bipartite_graph(S, row, col, negative=False):
     row_to_module = {row: module for module, row in row.items()}
     col_to_module = {col: module for module, col in col.items()}
     
@@ -100,12 +100,33 @@ def create_bipartite_graph(S, row, col):
             if weight > 0.0:
                 u = f"0 {module1}"
                 v = f"1 {module2}"
+                w = -weight if negative else weight
                 
                 B.add_node(u, bipartite=0, module=module1)
                 B.add_node(v, bipartite=1, module=module2)
-                B.add_edge(u, v, weight=weight)
+                B.add_edge(u, v, weight=w)
     
     return B
+
+
+def perfect_match(P, Q):
+    """
+    """
+    S = similarity(P, Q)
+    B = create_bipartite_graph(*S, negative=True)
+
+    matches = nx.bipartite.matching.minimum_weight_full_matching(B)
+
+    M = nx.Graph()
+
+    for node, data in B.nodes.data(True):
+        M.add_node(node, **data)
+
+    for source, target in matches.items():
+        weight = B[source][target]["weight"]
+        M.add_edge(source, target, weight=-weight)
+
+    return M
 
 
 def match(P, Q, threshold=None):
@@ -122,9 +143,9 @@ def match(P, Q, threshold=None):
     M
         nx.Graph
     """
-    S, row, col = similarity(P, Q)
-    B = create_bipartite_graph(S, row, col)
-    
+    S = similarity(P, Q)
+    B = create_bipartite_graph(*S)
+   
     M = nx.Graph()
     
     for node, data in B.nodes.data(True):
