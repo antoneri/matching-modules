@@ -1,8 +1,7 @@
 from collections import defaultdict
-import math
+from itertools import chain
 import numpy as np
 import networkx as nx
-import matplotlib.pyplot as plt
 from scipy.stats import entropy
 from sklearn.preprocessing import normalize
 
@@ -10,8 +9,9 @@ from sklearn.preprocessing import normalize
 def js_divergence(p: np.array, q: np.array):
     # Jensen-Shannon divergence between p and q
     mix = 0.5 * (p + q)
+
     jsd = 0.5 * entropy(p, mix, base=2) + 0.5 * entropy(q, mix, base=2)
-    
+
     if jsd < 0 or jsd > 1 + 1e-5:
         raise RuntimeWarning("JSD out of bounds")
 
@@ -19,25 +19,6 @@ def js_divergence(p: np.array, q: np.array):
         jsd = 1.0
         
     return jsd
-
-
-def feature_matrix(p, q):
-    num_nodes = len(
-        set(node[0] for node in p) |
-        set(node[0] for node in q)
-    )
-
-    row = defaultdict(lambda: len(row))
-
-    X = np.zeros((2, num_nodes))
-
-    for i, nodes in enumerate([p, q]):
-        for node_id, weight in nodes:
-            X[i, row[node_id]] = weight
-
-    normalize(X, axis=1, norm="l1", copy=False)
-
-    return X
 
 
 def js_similarity(p, q):
@@ -54,7 +35,21 @@ def js_similarity(p, q):
     similarity
         the similarity between p and q
     """
-    X = feature_matrix(p, q)
+    num_nodes = len(
+        set(node for node, _ in p) |
+        set(node for node, _ in q)
+    )
+
+    row = defaultdict(lambda: len(row))
+
+    X = np.zeros((2, num_nodes))
+
+    for i, nodes in enumerate([p, q]):
+        for node_id, weight in nodes:
+            X[i, row[node_id]] = weight
+
+    normalize(X, axis=1, norm="l1", copy=False)
+
     return 1 - js_divergence(X[0], X[1])
 
 
@@ -103,8 +98,8 @@ def create_bipartite_graph(S, row, col):
             module2 = col_to_module[j]
             
             if weight > 0.0:
-                u = f"P {module1}"
-                v = f"Q {module2}"
+                u = f"0 {module1}"
+                v = f"1 {module2}"
                 
                 B.add_node(u, bipartite=0, module=module1)
                 B.add_node(v, bipartite=1, module=module2)
@@ -125,7 +120,7 @@ def match(P, Q, threshold=None):
     Returns
     -------
     M
-        nx.Graph with the 
+        nx.Graph
     """
     S, row, col = similarity(P, Q)
     B = create_bipartite_graph(S, row, col)
@@ -143,49 +138,41 @@ def match(P, Q, threshold=None):
     return M
 
 
-def draw_match(G, ax=None, pos=None):
-    left = [node for node, bipartite in G.nodes.data("bipartite") if bipartite == 0]
-
-    if pos is None:
-        pos = nx.bipartite_layout(G, left)
-
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 10))
-
-    edgelist = nx.get_edge_attributes(G, "weight")
-
-    colors = list(nx.get_node_attributes(G, "color").values())
-
-    if len(colors) == 0:
-        colors = "#eee"
+def color_map(M, colors, cmap=None):
+    cmap_nodes = color_graph(M, colors, cmap=cmap)
+    cmap = defaultdict(dict)
     
-    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=1000, node_color=colors)
+    for node, color in cmap_nodes.items():
+        partition, module = map(int, node.split())
+        cmap[partition][module] = color
     
-    nx.draw_networkx_labels(G, pos, ax=ax, font_color="black", font_weight="bold")
+    return dict(cmap)
     
-    nx.draw_networkx_edges(G,
-                           pos,
-                           ax=ax,
-                           edgelist=edgelist.keys(),
-                           alpha=0.5,
-                           width=[2 * math.exp(w) for w in edgelist.values()])
 
-    return pos
+def color_graph(M, colors, cmap=None):
+    cmap_nodes = {}
 
+    if cmap is not None:
+        for partition, partition_map in cmap.items():
+            for node, color in partition_map.items():
+                key = f"{partition} {node}"
+                cmap_nodes[key] = color
 
-def color_graph(G, colors):
-    node_to_color = {}
-    current = 0
+    added = set(cmap_nodes.keys())
+    remaining = set(M.nodes) - added
+    i = 0
 
-    for source in G.nodes:
-        if source not in node_to_color:
-            current_color = colors[current]
-            node_to_color[source] = current_color
-            current += 1
+    for source in chain(added, remaining):
+        if source not in cmap_nodes:
+            current = colors[i]
+            cmap_nodes[source] = current
+            i += 1
         else:
-            current_color = node_to_color[source]
+            current = cmap_nodes[source]
 
-        for target in G[source]:
-            node_to_color[target] = current_color
+        for target in M[source]:
+            cmap_nodes[target] = current
 
-    nx.set_node_attributes(G, node_to_color, "color")
+    nx.set_node_attributes(M, cmap_nodes, "color")
+
+    return cmap_nodes
